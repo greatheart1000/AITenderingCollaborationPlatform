@@ -1,0 +1,292 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  BID_MANAGER
+  REVIEWER
+}
+
+enum ProjectStatus {
+  DRAFT
+  UNDER_REVIEW
+  ANALYSIS
+  COMPLIANCE_CHECK
+  MATERIAL_MATCHING
+  RISK_AUDIT
+  FINAL_AUDIT
+  SUBMITTED
+  AWARDED
+  REJECTED
+}
+
+enum WorkflowStage {
+  ANALYSIS
+  COMPLIANCE
+  MATCHING
+  DRAFTING
+  AUDIT
+  EXPORT
+}
+
+enum RequirementStatus {
+  MET
+  UNMET
+  UNCERTAIN
+}
+
+enum RiskImpact {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RiskStatus {
+  OPEN
+  MITIGATED
+  RESOLVED
+}
+
+enum AssetType {
+  QUALIFICATION
+  PERSONNEL
+  CERTIFICATE
+  EXPERIENCE
+  FINANCIAL
+  AUTHORIZATION
+}
+
+enum MatchStatus {
+  MATCHED
+  MISSING
+  EXPIRED
+  REVIEW
+  LOW_CONFIDENCE
+}
+
+enum BidDocumentStatus {
+  UPLOADED
+  PARSED
+  REVIEWED
+}
+
+enum ExportJobStatus {
+  READY
+  PENDING
+  FAILED
+}
+
+enum AuditActorType {
+  SYSTEM
+  USER
+  AI
+}
+
+model Organization {
+  id          String         @id @default(cuid())
+  name        String
+  industry    String
+  slug        String         @unique
+  createdAt   DateTime       @default(now())
+  users       User[]
+  projects    Project[]
+  assets      Asset[]
+  exportJobs  ExportJob[]
+}
+
+model User {
+  id             String     @id @default(cuid())
+  organizationId String
+  name           String
+  email          String     @unique
+  role           UserRole
+  createdAt      DateTime   @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedProjects  Project[]  @relation("ProjectOwner")
+  auditEntries   AuditLog[]
+}
+
+model Project {
+  id               String            @id @default(cuid())
+  organizationId   String
+  ownerId          String
+  code             String            @unique
+  title            String
+  issuer           String
+  deadline         DateTime
+  status           ProjectStatus
+  valueDisplay     String
+  riskScore        Int
+  category         String
+  stage            WorkflowStage
+  completeness     Int
+  nextAction       String
+  executiveSummary String?
+  suggestedStrategy String?
+  parseConfidence  Float?
+  extractedAt      DateTime?
+  sourceDocumentName String?
+  sourceDocumentPages Int?
+  sourceDocumentVersion String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner            User              @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  bidDocuments     BidDocument[]
+  blockers         ProjectBlocker[]
+  auditLogs        AuditLog[]
+  requirements     Requirement[]
+  complianceItems  ComplianceItem[]
+  riskItems        RiskItem[]
+  assetMatches     EvidenceMatch[]
+  exportJobs       ExportJob[]
+  keyFacts         ProjectKeyFact[]
+}
+
+model ProjectBlocker {
+  id        String     @id @default(cuid())
+  projectId String
+  title     String
+  severity  RiskImpact
+  owner     String
+  status    String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String         @id @default(cuid())
+  projectId   String
+  userId      String?
+  actor       String
+  action      String
+  actorType   AuditActorType
+  occurredAt  DateTime
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model BidDocument {
+  id          String            @id @default(cuid())
+  projectId   String
+  name        String
+  version     String
+  pageCount   Int
+  status      BidDocumentStatus
+  createdAt   DateTime          @default(now())
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Requirement {
+  id          String             @id @default(cuid())
+  projectId   String
+  title       String
+  requirement String
+  status      RequirementStatus
+  priority    RiskImpact
+  sourceText  String
+  sourceDoc   String
+  isHighRisk  Boolean            @default(false)
+  confidence  Float
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  complianceItems ComplianceItem[]
+  matches     EvidenceMatch[]
+}
+
+model ComplianceItem {
+  id             String             @id @default(cuid())
+  projectId       String
+  requirementId   String
+  title           String
+  requirement     String
+  status          RequirementStatus
+  priority        RiskImpact
+  sourceText      String
+  sourceDoc       String
+  isHighRisk      Boolean           @default(false)
+  confidence      Float
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirementRef  Requirement       @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+}
+
+model RiskItem {
+  id              String       @id @default(cuid())
+  projectId        String
+  category         String
+  factor           String
+  impact           RiskImpact
+  mitigation       String
+  affectedSection  String
+  status           RiskStatus
+  owner            String
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Asset {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  type           AssetType
+  evidence       String?
+  expirationDate DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  matches        EvidenceMatch[]
+}
+
+model EvidenceMatch {
+  id             String       @id @default(cuid())
+  projectId       String
+  requirementId   String
+  assetId         String?
+  name            String
+  type            AssetType
+  status          MatchStatus
+  requiredBy      String
+  evidence        String?
+  expirationDate  DateTime?
+  confidence      Float
+  recommendation  String
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirement     Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  asset           Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+}
+
+model ExportJob {
+  id            String         @id @default(cuid())
+  organizationId String
+  projectId      String
+  label          String
+  createdBy      String
+  isCurrent      Boolean       @default(false)
+  readiness      Int?
+  status         ExportJobStatus
+  createdAt      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  checks         ExportCheck[]
+}
+
+model ExportCheck {
+  id          String         @id @default(cuid())
+  exportJobId String
+  label       String
+  status      String
+  owner       String
+  message     String?
+  exportJob   ExportJob      @relation(fields: [exportJobId], references: [id], onDelete: Cascade)
+}
+
+model ProjectKeyFact {
+  id        String   @id @default(cuid())
+  projectId String
+  label     String
+  value     String
+  tone      String?
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
